@@ -201,7 +201,7 @@ def move_email(client: jmapc.Client, email: Email, destination_mailbox_id: str) 
 
 @app.command()
 def sort_emails_by_alias(ignore_email: list[str]):
-    """Moves emails from alias@mick.twomeylee.name to INBOX.To.[mick.twomeylee.name]/[alias]"""
+    """Moves emails from alias@example.com to INBOX.To.[example.com]/[alias]"""
 
     settings = Settings()
     client = jmapc.Client.create_with_api_token(
