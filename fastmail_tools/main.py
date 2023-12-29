@@ -53,18 +53,14 @@ def list_emails():
                 collapse_threads=True,
                 filter=EmailQueryFilterCondition(
                     in_mailbox=mailbox_id,
-                    # after=datetime.now(tz=timezone.utc) - timedelta(days=7),
                 ),
                 sort=[Comparator(property="receivedAt", is_ascending=False)],
-                # limit=5,
             ),
             EmailGet(
                 ids=Ref("/ids"), properties=["to", "subject", "from", "mailboxIds"]
             ),
-            # EmailGet(ids=Ref("/ids")),
         ]
         results = client.request(methods)
-        # rich.print(results)
         for email in results[1].response.data:
             if email.to is None:
                 continue
@@ -73,8 +69,7 @@ def list_emails():
             )
             for to in email.to:
                 address = to.email.lower()
-                if address.endswith("@mick.twomeylee.name"):
-                    counter[address] += 1
+                counter[address] += 1
     rich.print(email)
     rich.print(counter.most_common())
     rich.print(len(counter))
@@ -205,7 +200,7 @@ def move_email(client: jmapc.Client, email: Email, destination_mailbox_id: str) 
 
 
 @app.command()
-def sort_emails_by_alias():
+def sort_emails_by_alias(ignore_email: list[str]):
     """Moves emails from alias@mick.twomeylee.name to INBOX.To.[mick.twomeylee.name]/[alias]"""
 
     settings = Settings()
@@ -221,35 +216,41 @@ def sort_emails_by_alias():
 
     inbox_mailbox_ids = {inbox_id: True}
 
+    i = 0
     for i, email in enumerate(
         iterate_emails(
             client,
             inbox_id,
-            ["mick@twomeylee.name"],
+            ignore_email,
             list(to_mailboxes["domains"].keys()),
         )
     ):
         if email.mailbox_ids != inbox_mailbox_ids:
             rich.print(email)
             continue
+        assert email.to is not None, email
+        assert email.to[0].email is not None, email
         alias, domain = email.to[0].email.split("@", 1)
         rich.print(alias, domain)
-        if domain not in ("mick.twomeylee.name", "twomeylee.name"):
+        if domain not in list(to_mailboxes["domains"].keys()):
             rich.print(email)
             continue
 
         if alias not in to_mailboxes["domains"][domain]["aliases"]:
             rich.print(f"make mailbox {domain}/{alias}")
+            alias_mailbox_id = to_mailboxes["domains"][domain]["mailbox"].id
+            assert alias_mailbox_id is not None, to_mailboxes["domains"][domain]["mailbox"]
             mailbox = make_mailbox(
                 client,
-                parent_mailbox_id=to_mailboxes["domains"][domain]["mailbox"].id,
+                parent_mailbox_id=alias_mailbox_id,
                 name=alias,
             )
             rich.print(mailbox)
             to_mailboxes["domains"][domain]["aliases"][alias] = mailbox
-
+        alias_mailbox_id = to_mailboxes["domains"][domain]["mailbox"].id
+        assert alias_mailbox_id is not None, to_mailboxes["domains"][domain]["mailbox"]
         rich.print(f"mv {email.id}/{email.subject} -> {domain}/{alias}")
-        move_email(client, email, to_mailboxes["domains"][domain]["aliases"][alias].id)
+        move_email(client, email, alias_mailbox_id)
 
     rich.print(i)
 
