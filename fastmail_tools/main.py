@@ -156,6 +156,7 @@ def get_to_mailboxes(client: jmapc.Client) -> ToMailboxes:
 def iterate_emails(
     client: jmapc.Client, mailbox_id: str, ignore_emails: list[str], domains: list[str]
 ) -> Iterable[Email]:
+    # TODO: add pagination
     methods = [
         EmailQuery(filter=EmailQueryFilterCondition(in_mailbox=mailbox_id)),
         EmailGet(ids=Ref("/ids")),
@@ -176,8 +177,14 @@ def iterate_emails(
 
 
 def make_mailbox(client: jmapc.Client, parent_mailbox_id: str, name: str) -> Mailbox:
+    # sort_order = 10 matches sort order Fastmail sets when sorting emails by sieve
+    # Having the same sort order results in mailboxes being sorted by your locale's sort order
     methods = [
-        MailboxSet(create=dict(mailbox=Mailbox(name=name, parent_id=parent_mailbox_id)))
+        MailboxSet(
+            create=dict(
+                mailbox=Mailbox(name=name, parent_id=parent_mailbox_id, sort_order=10)
+            )
+        )
     ]
     results = client.request(methods)
     response = cast(MailboxSetResponse, results[-1].response)
@@ -239,7 +246,9 @@ def sort_emails_by_alias(ignore_email: list[str]):
         if alias not in to_mailboxes["domains"][domain]["aliases"]:
             rich.print(f"make mailbox {domain}/{alias}")
             alias_mailbox_id = to_mailboxes["domains"][domain]["mailbox"].id
-            assert alias_mailbox_id is not None, to_mailboxes["domains"][domain]["mailbox"]
+            assert alias_mailbox_id is not None, to_mailboxes["domains"][domain][
+                "mailbox"
+            ]
             mailbox = make_mailbox(
                 client,
                 parent_mailbox_id=alias_mailbox_id,
@@ -253,6 +262,42 @@ def sort_emails_by_alias(ignore_email: list[str]):
         move_email(client, email, alias_mailbox_id)
 
     rich.print(i)
+
+
+@app.command()
+def print_to_mailboxes():
+    """Print out the To/* mailboxes"""
+    settings = Settings()
+    client = jmapc.Client.create_with_api_token(
+        host=settings.jmap_host, api_token=settings.jmap_api_token
+    )
+    to_mailboxes = get_to_mailboxes(client)
+    rich.print(("to_mailboxes", to_mailboxes))
+
+
+def update_mailbox(client: jmapc.Client, mailbox: Mailbox, **updates) -> None:
+    assert mailbox.id is not None
+    methods = [MailboxSet(update={mailbox.id: updates})]
+    results = client.request(methods)
+    response = cast(MailboxSetResponse, results[-1].response)
+    rich.print(response)
+    assert response.updated is not None, response
+    assert mailbox.id in response.updated, response
+
+
+@app.command()
+def reset_to_mailboxes_sort_order():
+    """Resets the To/* mailbox sort order to 10"""
+    settings = Settings()
+    client = jmapc.Client.create_with_api_token(
+        host=settings.jmap_host, api_token=settings.jmap_api_token
+    )
+    to_mailboxes = get_to_mailboxes(client)
+    for domain, domain_mailboxes in to_mailboxes["domains"].items():
+        for alias, mailbox in domain_mailboxes["aliases"].items():
+            if mailbox.sort_order != 10:
+                rich.print((domain, alias, mailbox))
+                update_mailbox(client, mailbox, sortOrder=10)
 
 
 if __name__ == "__main__":
